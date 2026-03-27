@@ -306,7 +306,7 @@ const dict = {
     analytics_dept_ph: "例：IBS3", analytics_id_ph: "例：112212099", analytics_name_ph: "請輸入姓名",
     analytics_export_csv: "匯出 CSV 歷程記錄",
     analytics_fill_required: "請填寫完整資訊以解鎖匯出",
-    group_options: ["G1","G2","G3","G4","G5","Others"],
+    group_options: ["G1","G2","G3","G4","G5","G6","G7","G8","G9","G10","G11","G12","Others"],
     analytics_total_time: "總學習時間", analytics_total_clicks: "總互動點擊",
     analytics_overall_acc: "總體測驗答對率",
     analytics_module: "模組", analytics_time: "停留時間",
@@ -534,7 +534,7 @@ const dict = {
     analytics_dept_ph: "e.g. IBS3", analytics_id_ph: "e.g. 112212099", analytics_name_ph: "Enter your name",
     analytics_export_csv: "Export CSV Record",
     analytics_fill_required: "Complete all fields to unlock export",
-    group_options: ["G1","G2","G3","G4","G5","Others"],
+    group_options: ["G1","G2","G3","G4","G5","G6","G7","G8","G9","G10","G11","G12","Others"],
     analytics_total_time: "Total Time", analytics_total_clicks: "Total Clicks",
     analytics_overall_acc: "Overall Accuracy",
     analytics_module: "Module", analytics_time: "Time Spent",
@@ -880,7 +880,8 @@ function App() {
           <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-4">{t.key_terms}</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">{(t[`${mk}_terms`]||[]).map((term,i) => <FlipCard key={i} front={term.front} back={term.back} t={t}/>)}</div>
         </div>
-        <ModuleQuiz questions={t[`${mk}_q`]} t={t} moduleId={mIdx} onQuizSubmit={handleQuizSubmit}/>
+        {/* 在此加上 key={mIdx} 來強制重置組件狀態，確保跳到別的分頁時測驗紀錄不帶入 */}
+        <ModuleQuiz key={mIdx} questions={t[`${mk}_q`]} t={t} moduleId={mIdx} onQuizSubmit={handleQuizSubmit}/>
         {renderNavBottom()}
       </div>
     );
@@ -1069,8 +1070,11 @@ function App() {
                   {modulesList.map(m=>(
                     <button key={m.id} onClick={()=>{setModule(m.id);setMenuOpen(false);}}
                       className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors text-left ${module===m.id?'bg-[#004030] text-white dark:bg-[#D8C3A5]/20 dark:text-[#D8C3A5] font-bold':'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'}`}>
+                      {/* 加入獨立的項次數字 */}
+                      <span className={`w-5 text-center shrink-0 font-bold ${module===m.id?'text-[#D8C3A5]':'text-slate-400 dark:text-slate-500'}`}>{m.id}</span>
                       <span className={module===m.id?'text-[#D8C3A5]':'opacity-50'}>{m.icon}</span>
-                      <span className="truncate">{m.title}</span>
+                      {/* 移除原本標題內自帶的數字以避免重複 */}
+                      <span className="truncate">{m.title.replace(/^[0-9]+\.\s*/, '')}</span>
                     </button>
                   ))}
                 </div>
@@ -1107,8 +1111,11 @@ function App() {
               {modulesList.map(m=>(
                 <button key={m.id} onClick={()=>{setModule(m.id);setMenuOpen(false);}}
                   className={`w-full flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left ${module===m.id?'bg-[#004030] dark:bg-[#D8C3A5]/20 text-white dark:text-[#D8C3A5] border border-[#D8C3A5]/30':'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50'}`}>
+                  {/* 同步側邊欄的目錄項目數字顯示 */}
+                  <span className={`w-5 text-center shrink-0 font-bold mr-2 ${module===m.id?'text-[#D8C3A5]':'text-slate-400 dark:text-slate-500'}`}>{m.id}</span>
                   <span className={`mr-2.5 ${module===m.id?'text-[#D8C3A5]':'opacity-50'}`}>{m.icon}</span>
-                  <span className="truncate">{m.title}</span>
+                  {/* 移除原本標題內自帶的數字以避免重複 */}
+                  <span className="truncate">{m.title.replace(/^[0-9]+\.\s*/, '')}</span>
                   {module===m.id && <IconChevronRight size={14} className="ml-auto opacity-50 shrink-0"/>}
                 </button>
               ))}
