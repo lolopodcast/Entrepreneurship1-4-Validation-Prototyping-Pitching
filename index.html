@@ -4,11 +4,43 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>創業學：驗證與原型 · Wharton 互動學習</title>
+
+<!-- 防禦機制 1: 網域白名單與防框架嵌入 (Domain Lock & Iframe Busting) -->
+<script>
+(function() {
+  try {
+    var hostname = window.location.hostname;
+    var protocol = window.location.protocol;
+    var allowedDomains = ['lolopodcast.github.io', 'localhost', '127.0.0.1', ''];
+    var isSandbox = hostname.indexOf('googleusercontent.com') !== -1 || hostname.indexOf('gemini') !== -1 || protocol === 'data:' || protocol === 'blob:' || protocol === 'file:';
+    var profUrl = "https://www.ibs.ncnu.edu.tw/index.php/faculty/tenured-professor/299-smlo";
+
+    if (!allowedDomains.includes(hostname) && !isSandbox) {
+      window.location.replace(profUrl);
+    }
+    if (window.top !== window.self) {
+      var isSafe = false;
+      try {
+        if (allowedDomains.includes(window.top.location.hostname) || isSandbox) {
+          isSafe = true;
+        }
+      } catch (e) { isSafe = false; }
+      if (!isSafe && !isSandbox) {
+        window.location.replace(profUrl);
+      }
+    }
+  } catch(err) {}
+})();
+</script>
+
 <script src="https://cdn.tailwindcss.com"></script>
 <link href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<!-- 防禦機制 2: 導入 DOMPurify 預防 XSS 攻擊 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.9/purify.min.js"></script>
+
 <script>
 tailwind.config = {
   darkMode: 'class',
@@ -17,7 +49,9 @@ tailwind.config = {
 </script>
 <style>
 @keyframes fadeInUp { from{opacity:0;transform:translateY(15px)} to{opacity:1;transform:translateY(0)} }
+@keyframes toastIn { from { opacity: 0; transform: translate(-50%, 20px); } to { opacity: 1; transform: translate(-50%, 0); } }
 .animate-fade-in { animation: fadeInUp 0.5s ease-out forwards; }
+.animate-toast { animation: toastIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
 .perspective { perspective: 1000px; }
 .transform-style-3d { transform-style: preserve-3d; }
 .backface-hidden { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
@@ -27,13 +61,15 @@ tailwind.config = {
 .dark ::-webkit-scrollbar-thumb { background: #475569; }
 </style>
 </head>
-<body>
+<body class="selection:bg-[#004030] selection:text-white dark:selection:bg-[#D8C3A5] dark:selection:text-[#004030] overflow-x-hidden">
 <div id="root"></div>
 <script type="text/babel">
 const { useState, useEffect, useRef } = React;
 
-/* ───── SVG Icons ───── */
-const I = (p,d) => ({size=24,className=""}={}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{d}</svg>;
+/* ───── SVG Icons - 防禦機制 3: 防拖曳與防複製 ───── */
+const svgProps = { draggable: "false", className: "pointer-events-none select-none" };
+const I = (p,d) => ({size=24,className=""}={}) => <svg {...svgProps} xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`${className} ${svgProps.className}`}>{d}</svg>;
+
 const IconMenu = I('menu',<><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></>);
 const IconX = I('x',<><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>);
 const IconMoon = I('moon',<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>);
@@ -62,19 +98,20 @@ const IconUsers = I('us',<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
 const IconBriefcase = I('bf',<><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></>);
 const IconTarget = I('tg',<><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></>);
 const IconClipboard = I('cb',<><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></>);
+const IconShield = I('sh',<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>);
 
 /* ───── Reusable Components ───── */
 const FlipCard = ({ front, back, t }) => {
   const [flipped, setFlipped] = useState(false);
   return (
-    <div className="perspective cursor-pointer h-36" onClick={() => setFlipped(!flipped)}>
+    <div className="perspective cursor-pointer h-36 select-none" onClick={() => setFlipped(!flipped)}>
       <div className={`transform-style-3d relative w-full h-full transition-transform duration-500 ${flipped ? 'rotate-y-180' : ''}`}>
         <div className="backface-hidden absolute inset-0 bg-white dark:bg-slate-800 rounded-xl p-4 flex flex-col items-center justify-center border border-slate-200 dark:border-slate-700 shadow-sm">
-          <p className="font-serif font-bold text-center text-[#004030] dark:text-[#D8C3A5] text-sm">{front}</p>
+          <p className="font-serif font-bold text-center text-[#004030] dark:text-[#D8C3A5] text-sm select-text">{front}</p>
           <p className="text-xs text-slate-400 mt-2">{t.flip_prompt}</p>
         </div>
         <div className="backface-hidden rotate-y-180 absolute inset-0 bg-[#004030] dark:bg-slate-700 rounded-xl p-4 flex items-center justify-center">
-          <p className="text-xs text-center text-[#D8C3A5] dark:text-slate-200 leading-relaxed">{back}</p>
+          <p className="text-sm text-center text-[#D8C3A5] dark:text-slate-200 leading-relaxed select-text">{back}</p>
         </div>
       </div>
     </div>
@@ -88,13 +125,13 @@ const ModuleQuiz = ({ questions, t, moduleId, onQuizSubmit }) => {
   const score = submitted ? quizIndices.filter((qIdx,i) => selected[i] === questions[qIdx].ans).length : 0;
   return (
     <div className="mt-8 bg-slate-50 dark:bg-slate-900/50 rounded-2xl p-4 sm:p-6 border border-slate-200 dark:border-slate-700">
-      <h3 className="text-lg font-bold font-serif text-[#004030] dark:text-[#D8C3A5] mb-6">{t.quiz_title}</h3>
+      <h3 className="text-lg font-bold font-serif text-[#004030] dark:text-[#D8C3A5] mb-6 select-none">{t.quiz_title}</h3>
       {quizIndices.map((qIdx, i) => {
         const q = questions[qIdx];
         return (
           <div key={qIdx} className="mb-6">
-            <p className="font-bold mb-3 text-sm">{i+1}. {q.q}</p>
-            <div className="space-y-2">
+            <p className="font-bold mb-3 text-sm select-text">{i+1}. {q.q}</p>
+            <div className="space-y-2 select-none">
               {q.opts.map((opt, oIdx) => (
                 <button key={oIdx} onClick={() => !submitted && setSelected(s => ({...s, [i]: oIdx}))}
                   className={`w-full text-left px-4 py-3 rounded-lg border transition-all text-sm
@@ -107,17 +144,17 @@ const ModuleQuiz = ({ questions, t, moduleId, onQuizSubmit }) => {
                 </button>
               ))}
             </div>
-            {submitted && <p className="mt-2 text-sm text-slate-600 dark:text-slate-400 italic">{t.explanation}: {q.exp}</p>}
+            {submitted && <p className="mt-2 text-sm text-slate-600 dark:text-slate-400 italic select-text">{t.explanation}: {q.exp}</p>}
           </div>
         );
       })}
-      {submitted && <div className="mb-4 p-3 bg-[#004030]/10 dark:bg-[#D8C3A5]/10 rounded-lg font-bold text-[#004030] dark:text-[#D8C3A5]">{t.score}: {score}/{quizIndices.length}</div>}
+      {submitted && <div className="mb-4 p-3 bg-[#004030]/10 dark:bg-[#D8C3A5]/10 rounded-lg font-bold text-[#004030] dark:text-[#D8C3A5] select-none">{t.score}: {score}/{quizIndices.length}</div>}
       {!submitted
         ? <button onClick={() => { setSubmitted(true); const c = quizIndices.filter((qIdx,i) => selected[i] === questions[qIdx].ans).length; onQuizSubmit(moduleId, c, quizIndices.length); }}
             disabled={Object.keys(selected).length < quizIndices.length}
-            className="px-6 py-2 bg-[#004030] dark:bg-[#D8C3A5] text-white dark:text-[#004030] font-bold rounded-lg disabled:opacity-40 text-sm">{t.submit}</button>
+            className="px-6 py-2 bg-[#004030] dark:bg-[#D8C3A5] text-white dark:text-[#004030] font-bold rounded-lg disabled:opacity-40 text-sm select-none">{t.submit}</button>
         : <button onClick={() => { setSelected({}); setSubmitted(false); }}
-            className="px-6 py-2 border border-[#004030] dark:border-[#D8C3A5] text-[#004030] dark:text-[#D8C3A5] font-bold rounded-lg text-sm">{t.retry}</button>
+            className="px-6 py-2 border border-[#004030] dark:border-[#D8C3A5] text-[#004030] dark:text-[#D8C3A5] font-bold rounded-lg text-sm select-none">{t.retry}</button>
       }
     </div>
   );
@@ -125,7 +162,7 @@ const ModuleQuiz = ({ questions, t, moduleId, onQuizSubmit }) => {
 
 const LinkCard = ({label, url, desc}) => (
   <a href={url} target="_blank" rel="noopener noreferrer"
-    className="block bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-200 dark:border-slate-700 hover:border-[#004030] dark:hover:border-[#D8C3A5] hover:shadow-md transition-all group">
+    className="block bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-200 dark:border-slate-700 hover:border-[#004030] dark:hover:border-[#D8C3A5] hover:shadow-md transition-all group select-none">
     <div className="flex items-start justify-between gap-2 mb-2">
       <span className="font-bold font-serif text-sm text-[#004030] dark:text-[#D8C3A5] group-hover:underline leading-snug">{label}</span>
       <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mt-1 opacity-40"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
@@ -151,19 +188,19 @@ const ElevatorPitchLab = ({lang}) => {
          :`For ${audience} who need ${need}, ${product} is a solution that ${benefit}. Unlike ${competitor}, we ${diff}.`)
       : (zh?'請填入所有欄位':'Fill in all fields'));
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-xl p-4 sm:p-6 border border-slate-200 dark:border-slate-700">
+    <div className="bg-white dark:bg-slate-800 rounded-xl p-4 sm:p-6 border border-slate-200 dark:border-slate-700 select-none">
       <h4 className="font-serif font-bold text-lg text-[#004030] dark:text-[#D8C3A5] mb-4">{zh?'電梯簡報產生器':'Elevator Pitch Generator'}</h4>
       <div className="flex gap-2 mb-4">
         <button onClick={()=>setPitchType('highConcept')} className={`px-3 py-1 rounded-full text-sm font-bold ${pitchType==='highConcept'?'bg-[#004030] text-white dark:bg-[#D8C3A5] dark:text-[#004030]':'bg-slate-100 dark:bg-slate-700'}`}>{zh?'高概念類比':'High Concept'}</button>
         <button onClick={()=>setPitchType('twoSentence')} className={`px-3 py-1 rounded-full text-sm font-bold ${pitchType==='twoSentence'?'bg-[#004030] text-white dark:bg-[#D8C3A5] dark:text-[#004030]':'bg-slate-100 dark:bg-slate-700'}`}>{zh?'兩句式定位':'Two-Sentence'}</button>
       </div>
       {pitchType==='highConcept' ? (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3 select-text">
           <input value={product} onChange={e=>setProduct(e.target.value)} placeholder={zh?'你的產品（如：LinkedIn）':'Your product (e.g. LinkedIn)'} className="border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200"/>
           <input value={audience} onChange={e=>setAudience(e.target.value)} placeholder={zh?'知名類比（如：Facebook for 專業人士）':'Analogy (e.g. Facebook for professionals)'} className="border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200"/>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3 select-text">
           <input value={audience} onChange={e=>setAudience(e.target.value)} placeholder={zh?'目標受眾':'Target audience'} className="border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200"/>
           <input value={need} onChange={e=>setNeed(e.target.value)} placeholder={zh?'他們的需求':'Their need'} className="border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200"/>
           <input value={product} onChange={e=>setProduct(e.target.value)} placeholder={zh?'產品名稱':'Product name'} className="border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200"/>
@@ -172,7 +209,7 @@ const ElevatorPitchLab = ({lang}) => {
           <input value={diff} onChange={e=>setDiff(e.target.value)} placeholder={zh?'關鍵差異':'Key difference'} className="border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200"/>
         </div>
       )}
-      <div className="mt-4 p-4 bg-[#004030]/5 dark:bg-[#D8C3A5]/10 rounded-lg">
+      <div className="mt-4 p-4 bg-[#004030]/5 dark:bg-[#D8C3A5]/10 rounded-lg select-text">
         <p className="text-sm font-serif italic text-[#004030] dark:text-[#D8C3A5]">{pitch}</p>
       </div>
     </div>
@@ -186,14 +223,14 @@ const InterviewSimLab = ({lang}) => {
     ? [{t:'情境建立',d:'先詢問受訪者的背景、角色與日常工作。'},{t:'探索問題',d:'詢問他們遇到的最大困擾是什麼？上次遇到這個問題是什麼時候？'},{t:'了解現況',d:'他們目前如何解決這個問題？喜歡/不喜歡什麼？'},{t:'介紹方案',d:'簡要介紹你的構想，然後閉嘴，讓受訪者提問。'}]
     : [{t:'Set Context',d:'Ask about their background, role, and daily workflow.'},{t:'Explore Problem',d:'What is the biggest challenge they face? When did it last occur?'},{t:'Understand Current',d:'How do they solve it today? What do they like/dislike?'},{t:'Present Solution',d:'Briefly introduce your idea, then be quiet and let them ask questions.'}];
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-xl p-4 sm:p-6 border border-slate-200 dark:border-slate-700">
+    <div className="bg-white dark:bg-slate-800 rounded-xl p-4 sm:p-6 border border-slate-200 dark:border-slate-700 select-none">
       <h4 className="font-serif font-bold text-lg text-[#004030] dark:text-[#D8C3A5] mb-4">{zh?'顧客訪談流程模擬器':'Interview Flow Simulator'}</h4>
       <div className="flex gap-2 mb-4">
         {steps.map((_,i)=><button key={i} onClick={()=>setStep(i)} className={`w-10 h-10 rounded-full text-sm font-bold transition-all ${step===i?'bg-[#004030] text-white dark:bg-[#D8C3A5] dark:text-[#004030] scale-110':'bg-slate-100 dark:bg-slate-700 text-slate-500'}`}>{i+1}</button>)}
       </div>
       <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-lg">
         <h5 className="font-bold text-[#004030] dark:text-[#D8C3A5] mb-1">{steps[step].t}</h5>
-        <p className="text-sm">{steps[step].d}</p>
+        <p className="text-sm select-text">{steps[step].d}</p>
       </div>
       <div className="flex justify-between mt-4">
         <button onClick={()=>setStep(Math.max(0,step-1))} disabled={step===0} className="px-4 py-1 text-sm rounded-lg border border-slate-200 dark:border-slate-600 disabled:opacity-30">{zh?'上一步':'Prev'}</button>
@@ -209,13 +246,13 @@ const SurveyDesignLab = ({lang}) => {
   const bad = zh ? 'Q: 鑒於經濟情勢，你在哪裡買毛衣？\na. Amazon  b. 量販店  c. 服飾店  d. 其他網站' : 'Q: Given the economy, where do you buy sweaters?\na. Amazon  b. Mass merchants  c. Clothing stores  d. Other sites';
   const good = zh ? 'Q: 過去12個月，你最常在哪裡購買毛衣？\na. Amazon  b. 其他網站  c. 量販店（如Costco）\nd. 服飾店（如GAP）  e. 沒有買過  f. 其他（請說明）' : 'Q: Where have you bought the most sweaters in the past 12 months?\na. Amazon  b. Other online  c. Mass merchants (Costco etc.)\nd. Clothing stores (GAP etc.)  e. None  f. Other (specify)';
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-xl p-4 sm:p-6 border border-slate-200 dark:border-slate-700">
+    <div className="bg-white dark:bg-slate-800 rounded-xl p-4 sm:p-6 border border-slate-200 dark:border-slate-700 select-none">
       <h4 className="font-serif font-bold text-lg text-[#004030] dark:text-[#D8C3A5] mb-4">{zh?'問卷題目優劣對照':'Survey Question Comparison'}</h4>
       <div className="flex gap-2 mb-4">
         <button onClick={()=>setShowBad(true)} className={`px-3 py-1 rounded-full text-sm font-bold ${showBad?'bg-red-500 text-white':'bg-slate-100 dark:bg-slate-700'}`}>{zh?'不良範例':'Bad Example'}</button>
         <button onClick={()=>setShowBad(false)} className={`px-3 py-1 rounded-full text-sm font-bold ${!showBad?'bg-green-600 text-white':'bg-slate-100 dark:bg-slate-700'}`}>{zh?'改善範例':'Better Example'}</button>
       </div>
-      <pre className="text-sm whitespace-pre-wrap p-4 bg-slate-50 dark:bg-slate-900/50 rounded-lg">{showBad?bad:good}</pre>
+      <pre className="text-sm whitespace-pre-wrap p-4 bg-slate-50 dark:bg-slate-900/50 rounded-lg select-text">{showBad?bad:good}</pre>
     </div>
   );
 };
@@ -228,13 +265,13 @@ const PrototypeFidelityLab = ({lang}) => {
     ? ['手繪草圖，幾分鐘即可完成。適合快速迭代多種設計方向。','使用 Balsamiq 等線框工具，呈現基本版面與互動流程。','完整視覺設計，包含品牌色彩與字型，需設計師參與。']
     : ['Hand-drawn sketches, done in minutes. Great for rapid iteration.','Wireframes via Balsamiq etc., showing layout and flow.','Full visual design with brand colors and fonts. Requires a designer.'];
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-xl p-4 sm:p-6 border border-slate-200 dark:border-slate-700">
+    <div className="bg-white dark:bg-slate-800 rounded-xl p-4 sm:p-6 border border-slate-200 dark:border-slate-700 select-none">
       <h4 className="font-serif font-bold text-lg text-[#004030] dark:text-[#D8C3A5] mb-4">{zh?'原型保真度滑桿':'Prototype Fidelity Slider'}</h4>
       <input type="range" min="0" max="2" value={fidelity} onChange={e=>setFidelity(+e.target.value)} className="w-full accent-[#004030] dark:accent-[#D8C3A5]"/>
       <div className="flex justify-between text-xs text-slate-500 mb-3">{labels.map((l,i)=><span key={i}>{l}</span>)}</div>
       <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-lg">
         <h5 className="font-bold text-[#004030] dark:text-[#D8C3A5] mb-1">{labels[fidelity]}</h5>
-        <p className="text-sm">{descs[fidelity]}</p>
+        <p className="text-sm select-text">{descs[fidelity]}</p>
       </div>
     </div>
   );
@@ -244,7 +281,7 @@ const WizardOfOzLab = ({lang}) => {
   const zh = lang==='zh';
   const [reveal, setReveal] = useState(false);
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-xl p-4 sm:p-6 border border-slate-200 dark:border-slate-700">
+    <div className="bg-white dark:bg-slate-800 rounded-xl p-4 sm:p-6 border border-slate-200 dark:border-slate-700 select-none">
       <h4 className="font-serif font-bold text-lg text-[#004030] dark:text-[#D8C3A5] mb-4">{zh?'綠野仙蹤法互動示意':'Wizard of Oz Interactive'}</h4>
       <div className="relative">
         <div className="p-4 bg-gradient-to-r from-[#004030] to-[#006050] rounded-lg text-white text-center">
@@ -256,7 +293,7 @@ const WizardOfOzLab = ({lang}) => {
         </div>
         {reveal && <div className="mt-2 p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border-2 border-dashed border-yellow-400">
           <p className="font-bold text-yellow-700 dark:text-yellow-300">{zh?'🚲 幕後的真相':'🚲 Behind the Curtain'}</p>
-          <p className="text-sm mt-1">{zh?'創辦人親自騎腳踏車去餐廳取餐，用信用卡付款，再騎車送到客戶手中。Caviar 就是這樣驗證了食物外送的需求，最終以 1 億美元出售給 Square。':'The founder personally biked to restaurants, paid with his credit card, and delivered food to customers. Caviar validated demand this way and later sold to Square for $100M.'}</p>
+          <p className="text-sm mt-1 select-text">{zh?'創辦人親自騎腳踏車去餐廳取餐，用信用卡付款，再騎車送到客戶手中。Caviar 就是這樣驗證了食物外送的需求，最終以 1 億美元出售給 Square。':'The founder personally biked to restaurants, paid with his credit card, and delivered food to customers. Caviar validated demand this way and later sold to Square for $100M.'}</p>
         </div>}
       </div>
     </div>
@@ -269,7 +306,7 @@ const ValidationFlowLab = ({lang}) => {
     ? [{n:'1',t:'電梯簡報',c:'#004030'},{n:'2',t:'顧客訪談',c:'#006050'},{n:'3',t:'問卷調查',c:'#008060'},{n:'4',t:'原型測試',c:'#00A070'},{n:'5',t:'市場驗證',c:'#00C080'}]
     : [{n:'1',t:'Elevator Pitch',c:'#004030'},{n:'2',t:'Interviews',c:'#006050'},{n:'3',t:'Surveys',c:'#008060'},{n:'4',t:'Prototype',c:'#00A070'},{n:'5',t:'Validation',c:'#00C080'}];
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-xl p-4 sm:p-6 border border-slate-200 dark:border-slate-700">
+    <div className="bg-white dark:bg-slate-800 rounded-xl p-4 sm:p-6 border border-slate-200 dark:border-slate-700 select-none">
       <h4 className="font-serif font-bold text-lg text-[#004030] dark:text-[#D8C3A5] mb-4">{zh?'構想驗證全流程':'Idea Validation Pipeline'}</h4>
       <div className="flex flex-wrap gap-2 items-center justify-center">
         {steps.map((s,i)=>(
@@ -313,6 +350,7 @@ const dict = {
     analytics_clicks: "點擊次數", analytics_acc: "答對率",
     analytics_correct_ans_total: "答對 / 已答 / 總題數",
     analytics_no_data: "尚未測驗", analytics_sec: "秒", analytics_times: "次",
+    copyright_toast: "Intellectual Property of Prof. Shihmin Lo",
     date: "Version 2026.03.15",
     copyright: "For Educational Use Only",
     architect_label: "Architect:",
@@ -541,6 +579,7 @@ const dict = {
     analytics_clicks: "Clicks", analytics_acc: "Accuracy",
     analytics_correct_ans_total: "Correct / Answered / Total",
     analytics_no_data: "Not tested", analytics_sec: "s", analytics_times: "x",
+    copyright_toast: "Intellectual Property of Prof. Shihmin Lo",
     date: "Version 2026.03.15",
     copyright: "For Educational Use Only",
     architect_label: "Architect:",
@@ -748,6 +787,7 @@ function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [ttsState, setTtsState] = useState('idle');
   const [studentInfo, setStudentInfo] = useState({ group:'', dept:'', id:'', name:'' });
+  const [toastMsg, setToastMsg] = useState(null);
   const [analytics, setAnalytics] = useState({
     time: Array(TOTAL).fill(0), clicks: Array(TOTAL).fill(0),
     quizCorrect: Array(TOTAL).fill(0), quizTotal: Array(TOTAL).fill(0)
@@ -755,6 +795,57 @@ function App() {
   const contentRef = useRef(null);
   const menuRef = useRef(null);
   const t = dict[lang];
+
+  const showToast = (msg) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(null), 3000);
+  };
+
+  /* 防禦機制 4: 全域鍵盤與滑鼠防護 */
+  useEffect(() => {
+    const handleContextMenu = (e) => {
+      const selectionText = window.getSelection().toString().trim();
+      const isImage = e.target.tagName.toLowerCase() === 'img' || e.target.closest('svg') !== null;
+      // 智慧判斷: 如果有選取文字且目標不是圖片，允許右鍵 (查字典/筆記)
+      if (selectionText.length > 0 && !isImage) return; 
+      
+      e.preventDefault();
+      showToast(t.copyright_toast);
+    };
+
+    const handleKeyDown = (e) => {
+      // 豁免機制: 開放 Ctrl+P, Ctrl+S, Ctrl+C
+      if (e.ctrlKey || e.metaKey) {
+        const k = e.key.toLowerCase();
+        if (k === 'p' || k === 's' || k === 'c') return;
+      }
+      // 攔截 F12, Ctrl+U, Ctrl+Shift+I/J/C
+      const isF12 = e.key === 'F12';
+      const isCtrlU = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'u';
+      const isDevTools = (e.ctrlKey || e.metaKey) && e.shiftKey && ['i', 'j', 'c'].includes(e.key.toLowerCase());
+      
+      if (isF12 || isCtrlU || isDevTools) {
+        e.preventDefault();
+        showToast(t.copyright_toast);
+      }
+    };
+
+    const handleDragStart = (e) => {
+      if (e.target.tagName.toLowerCase() === 'img' || e.target.closest('svg') !== null) {
+        e.preventDefault();
+      }
+    };
+
+    document.addEventListener('contextmenu', handleContextMenu);
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('dragstart', handleDragStart);
+
+    return () => {
+      document.removeEventListener('contextmenu', handleContextMenu);
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('dragstart', handleDragStart);
+    };
+  }, [lang]);
 
   useEffect(() => { document.documentElement.classList.toggle('dark', isDark); }, [isDark]);
   useEffect(() => { window.scrollTo({top:0}); window.speechSynthesis?.cancel(); setTtsState('idle'); }, [module]);
@@ -843,9 +934,21 @@ function App() {
     { id: N+3, icon: icons[N+3] || <IconBarChart2 size={16}/>, title: t.analytics_title }
   ];
 
+  /* 版權 Toast UI 元件 */
+  const ToastComponent = () => {
+    if (!toastMsg) return null;
+    return (
+      <div className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-[#004030] dark:bg-[#D8C3A5] text-[#D8C3A5] dark:text-[#004030] px-6 py-3.5 rounded-full shadow-2xl z-[9999] font-serif font-bold text-sm sm:text-base animate-toast border border-[#D8C3A5]/30 dark:border-[#004030]/30 flex items-center gap-3 select-none pointer-events-none">
+        <IconShield size={20} />
+        {toastMsg}
+      </div>
+    );
+  };
+
   const H2 = ({children}) => <h2 className="text-2xl sm:text-3xl md:text-4xl font-serif font-black text-[#004030] dark:text-[#D8C3A5] border-b-2 border-[#D8C3A5] pb-4">{children}</h2>;
+  
   const renderNavBottom = () => (
-    <div className="mt-12 flex justify-between items-center pt-8 border-t border-slate-300 dark:border-slate-700">
+    <div className="mt-12 flex justify-between items-center pt-8 border-t border-slate-300 dark:border-slate-700 select-none">
       <button onClick={() => setModule(Math.max(0, module-1))} disabled={module===0}
         className="px-6 py-3 font-serif font-bold text-slate-500 hover:text-[#004030] dark:hover:text-[#D8C3A5] disabled:opacity-0 transition-colors flex items-center uppercase text-sm tracking-wider">← {t.nav_prev}</button>
       <button onClick={() => setModule(Math.min(TOTAL-1, module+1))} disabled={module===TOTAL-1}
@@ -876,7 +979,7 @@ function App() {
             </div>
           ))}
         </div>
-        <div className="mt-8">
+        <div className="mt-8 select-none">
           <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-4">{t.key_terms}</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">{(t[`${mk}_terms`]||[]).map((term,i) => <FlipCard key={i} front={term.front} back={term.back} t={t}/>)}</div>
         </div>
@@ -911,11 +1014,11 @@ function App() {
         <div className="grid md:grid-cols-2 gap-3">{links1.map((l,i)=><LinkCard key={i} {...l}/>)}</div>
         {links2.map((sec,si)=>(
           <div key={si}>
-            <h3 className="text-lg font-bold text-slate-600 dark:text-slate-400 mb-3">{sec.cat}</h3>
+            <h3 className="text-lg font-bold text-slate-600 dark:text-slate-400 mb-3 select-none">{sec.cat}</h3>
             <div className="grid md:grid-cols-2 gap-3">{sec.items.map((l,i)=><LinkCard key={i} {...l}/>)}</div>
           </div>
         ))}
-        <div className="bg-[#004030]/5 dark:bg-[#D8C3A5]/5 rounded-xl p-5 border border-[#004030]/20 dark:border-[#D8C3A5]/20">
+        <div className="bg-[#004030]/5 dark:bg-[#D8C3A5]/5 rounded-xl p-5 border border-[#004030]/20 dark:border-[#D8C3A5]/20 select-none">
           <p className="text-sm text-slate-600 dark:text-slate-400">⚠️ {lang==='zh'?'免責聲明：外部連結內容由第三方提供，本教材不對其正確性或可用性負責。連結可能隨時變更或失效。':'Disclaimer: External links are provided by third parties. This material is not responsible for their accuracy or availability. Links may change or expire.'}</p>
         </div>
         {renderNavBottom()}
@@ -926,7 +1029,7 @@ function App() {
   const renderLab = () => (
     <div className="space-y-8 animate-fade-in">
       <H2>{t.mlab_title}</H2>
-      <p className="text-slate-600 dark:text-slate-400">{t.mlab_desc}</p>
+      <p className="text-slate-600 dark:text-slate-400 select-none">{t.mlab_desc}</p>
       <ElevatorPitchLab lang={lang}/>
       <div className="grid md:grid-cols-2 gap-6">
         <InterviewSimLab lang={lang}/>
@@ -947,15 +1050,15 @@ function App() {
     if (module === 0) return (
       <div className={`space-y-8 text-base leading-relaxed text-slate-700 dark:text-slate-300 ${fade}`}>
         <div className="bg-[#004030] dark:bg-slate-800 rounded-2xl p-6 sm:p-8 text-white">
-          <p className="text-xs font-bold uppercase tracking-widest text-[#D8C3A5] mb-3">{lang==='zh'?'課程簡介':'Course Introduction'}</p>
+          <p className="text-xs font-bold uppercase tracking-widest text-[#D8C3A5] mb-3 select-none">{lang==='zh'?'課程簡介':'Course Introduction'}</p>
           <h2 className="text-2xl sm:text-3xl md:text-4xl font-serif font-black text-white mb-4">{t.m0_title}</h2>
           <p className="text-[#D8C3A5]/90 text-sm sm:text-base leading-relaxed">{t.m0_intro}</p>
         </div>
-        <div className="bg-white dark:bg-slate-800 rounded-xl p-6 border-l-4 border-[#D8C3A5] shadow-sm">
+        <div className="bg-white dark:bg-slate-800 rounded-xl p-6 border-l-4 border-[#D8C3A5] shadow-sm select-none">
           <h3 className="text-xl font-bold font-serif text-[#004030] dark:text-[#D8C3A5] mb-3">{t.m0_why}</h3>
-          <p className="text-sm sm:text-base">{t.m0_why_desc}</p>
+          <p className="text-sm sm:text-base select-text">{t.m0_why_desc}</p>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 select-none">
           {t.m0_stats.map((s,i)=>(
             <div key={i} className="bg-white dark:bg-slate-800 rounded-xl p-5 text-center shadow-sm border border-slate-200 dark:border-slate-700">
               <div className="text-2xl md:text-3xl font-black font-serif text-[#004030] dark:text-[#D8C3A5] mb-1">{s.val}</div>
@@ -963,7 +1066,7 @@ function App() {
             </div>
           ))}
         </div>
-        <div>
+        <div className="select-none">
           <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-4">{lang==='zh'?'課程模組':'Course Modules'}</h3>
           <div className="space-y-3">
             {t.m0_modules.map((m,i)=>(
@@ -979,7 +1082,7 @@ function App() {
             ))}
           </div>
         </div>
-        <div className="flex justify-end">
+        <div className="flex justify-end select-none">
           <button onClick={()=>setModule(1)} className="px-8 py-3 bg-[#004030] dark:bg-[#D8C3A5] text-white dark:text-[#004030] font-serif font-bold rounded-lg hover:bg-[#002b20] transition-colors shadow-md">{t.m0_start}</button>
         </div>
       </div>
@@ -1002,8 +1105,8 @@ function App() {
       return (
         <div className="space-y-6 text-base leading-relaxed text-slate-700 dark:text-slate-300 animate-fade-in">
           <H2>{t.analytics_title}</H2>
-          <p className="text-slate-500 dark:text-slate-400">{t.analytics_desc}</p>
-          <div className="grid grid-cols-3 gap-4">
+          <p className="text-slate-500 dark:text-slate-400 select-none">{t.analytics_desc}</p>
+          <div className="grid grid-cols-3 gap-4 select-none">
             {[{label:t.analytics_total_time,val:totalTime+t.analytics_sec},{label:t.analytics_total_clicks,val:totalClicks+t.analytics_times},{label:t.analytics_overall_acc,val:overallAcc}].map((s,i)=>(
               <div key={i} className="bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-200 dark:border-slate-700 text-center shadow-sm">
                 <p className="text-2xl font-black font-serif text-[#004030] dark:text-[#D8C3A5]">{s.val}</p>
@@ -1011,7 +1114,7 @@ function App() {
               </div>
             ))}
           </div>
-          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm select-none">
             <table className="w-full text-sm">
               <thead><tr className="bg-[#004030] text-[#D8C3A5]">
                 <th className="text-left p-3">{t.analytics_module}</th>
@@ -1034,20 +1137,20 @@ function App() {
               })}</tbody>
             </table>
           </div>
-          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 shadow-sm">
-            <h3 className="font-serif font-bold text-lg text-[#004030] dark:text-[#D8C3A5] mb-4">{t.analytics_form_title}</h3>
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 shadow-sm select-text">
+            <h3 className="font-serif font-bold text-lg text-[#004030] dark:text-[#D8C3A5] mb-4 select-none">{t.analytics_form_title}</h3>
             <div className="grid grid-cols-2 gap-4">
-              <div><label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">{t.analytics_group}</label>
-                <select value={studentInfo.group} onChange={e=>setStudentInfo({...studentInfo,group:e.target.value})} className="w-full border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200">
+              <div><label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1 select-none">{t.analytics_group}</label>
+                <select value={studentInfo.group} onChange={e=>setStudentInfo({...studentInfo,group:window.DOMPurify.sanitize(e.target.value)})} className="w-full border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200">
                   <option value="">--</option>{t.group_options.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
-              <div><label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">{t.analytics_dept}</label>
-                <input value={studentInfo.dept} onChange={e=>setStudentInfo({...studentInfo,dept:e.target.value})} placeholder={t.analytics_dept_ph} className="w-full border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200"/></div>
-              <div><label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">{t.analytics_id}</label>
-                <input value={studentInfo.id} onChange={e=>setStudentInfo({...studentInfo,id:e.target.value})} placeholder={t.analytics_id_ph} className="w-full border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200"/></div>
-              <div><label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">{t.analytics_name}</label>
-                <input value={studentInfo.name} onChange={e=>setStudentInfo({...studentInfo,name:e.target.value})} placeholder={t.analytics_name_ph} className="w-full border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200"/></div>
+              <div><label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1 select-none">{t.analytics_dept}</label>
+                <input value={studentInfo.dept} onChange={e=>setStudentInfo({...studentInfo,dept:window.DOMPurify.sanitize(e.target.value)})} placeholder={t.analytics_dept_ph} className="w-full border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200"/></div>
+              <div><label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1 select-none">{t.analytics_id}</label>
+                <input value={studentInfo.id} onChange={e=>setStudentInfo({...studentInfo,id:window.DOMPurify.sanitize(e.target.value)})} placeholder={t.analytics_id_ph} className="w-full border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200"/></div>
+              <div><label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1 select-none">{t.analytics_name}</label>
+                <input value={studentInfo.name} onChange={e=>setStudentInfo({...studentInfo,name:window.DOMPurify.sanitize(e.target.value)})} placeholder={t.analytics_name_ph} className="w-full border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200"/></div>
             </div>
-            <button onClick={handleExportCSV} disabled={!canExport} className="mt-4 px-6 py-2.5 bg-[#004030] dark:bg-[#D8C3A5] text-white dark:text-[#004030] font-bold rounded-lg disabled:opacity-40 hover:bg-[#002b20] transition-colors text-sm">{canExport?t.analytics_export_csv:t.analytics_fill_required}</button>
+            <button onClick={handleExportCSV} disabled={!canExport} className="mt-4 px-6 py-2.5 bg-[#004030] dark:bg-[#D8C3A5] text-white dark:text-[#004030] font-bold rounded-lg disabled:opacity-40 hover:bg-[#002b20] transition-colors text-sm select-none">{canExport?t.analytics_export_csv:t.analytics_fill_required}</button>
           </div>
           {renderNavBottom()}
         </div>
@@ -1057,43 +1160,31 @@ function App() {
 
   return (
     <div className={`min-h-screen bg-[#f4f4f4] dark:bg-[#121212] font-sans selection:bg-[#004030] selection:text-white dark:selection:bg-[#D8C3A5] dark:selection:text-[#004030] flex flex-col overflow-x-hidden pt-16`}>
-      <header className="fixed top-0 left-0 right-0 h-16 bg-[#004030] dark:bg-slate-900 text-white z-50 shadow-lg border-b border-[#D8C3A5]/30">
+      <header className="fixed top-0 left-0 right-0 h-16 bg-[#004030] dark:bg-slate-900 text-white z-50 shadow-lg border-b border-[#D8C3A5]/30 select-none">
         <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <div className="relative" ref={menuRef}>
               <button className="p-2 hover:bg-white/10 rounded-lg" onClick={()=>setMenuOpen(!menuOpen)}>{menuOpen?<IconX size={20}/>:<IconMenu size={20}/>}</button>
-              {menuOpen && (
-                <div className="absolute top-full left-0 mt-1 w-64 max-w-[calc(100vw-2rem)] max-h-[calc(100vh-5rem)] overflow-y-auto bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 z-[100] overflow-x-hidden">
-                  <div className="bg-[#004030]/5 dark:bg-[#D8C3A5]/5 px-4 py-2 border-b border-slate-200 dark:border-slate-700">
-                    <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">{t.nav_modules}</p>
-                  </div>
-                  {modulesList.map(m=>(
-                    <button key={m.id} onClick={()=>{setModule(m.id);setMenuOpen(false);}}
-                      className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors text-left ${module===m.id?'bg-[#004030] text-white dark:bg-[#D8C3A5]/20 dark:text-[#D8C3A5] font-bold':'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'}`}>
-                      {/* 加入獨立的項次數字 */}
-                      <span className={`w-5 text-center shrink-0 font-bold ${module===m.id?'text-[#D8C3A5]':'text-slate-400 dark:text-slate-500'}`}>{m.id}</span>
-                      <span className={module===m.id?'text-[#D8C3A5]':'opacity-50'}>{m.icon}</span>
-                      {/* 移除原本標題內自帶的數字以避免重複 */}
-                      <span className="truncate">{m.title.replace(/^[0-9]+\.\s*/, '')}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
+              {menuOpen&&(<div className="absolute top-full left-0 mt-1 w-64 max-w-[calc(100vw-2rem)] max-h-[calc(100vh-5rem)] overflow-y-auto bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 z-[100] overflow-x-hidden">
+                <div className="bg-[#004030]/5 dark:bg-[#D8C3A5]/5 px-4 py-2 border-b border-slate-200 dark:border-slate-700"><p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">{t.nav_modules}</p></div>
+                {modulesList.map(m=>(
+                  <button key={m.id} onClick={()=>{setModule(m.id);setMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors text-left ${module===m.id?'bg-[#004030] text-white dark:bg-[#D8C3A5]/20 dark:text-[#D8C3A5] font-bold':'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'}`}>
+                    <span className={`w-5 text-center shrink-0 font-bold ${module===m.id?'text-[#D8C3A5]':'text-slate-400 dark:text-slate-500'}`}>{m.id}</span>
+                    <span className={module===m.id?'text-[#D8C3A5]':'opacity-50'}>{m.icon}</span>
+                    <span className="truncate">{m.title.replace(/^[0-9]+\.\s*/, '')}</span>
+                  </button>
+                ))}
+              </div>)}
             </div>
             <button onClick={()=>window.scrollTo({top:0,behavior:'smooth'})} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
               <div className="font-serif font-black text-lg tracking-widest text-[#D8C3A5]">ENT</div>
-              <div className="hidden sm:block text-left">
-                <h1 className="font-serif font-bold text-sm md:text-base leading-tight">{t.title}</h1>
-                <p className="text-[10px] text-[#D8C3A5]/70">{t.subtitle}</p>
-              </div>
+              <div className="hidden sm:block text-left"><h1 className="font-serif font-bold text-sm md:text-base leading-tight">{t.title}</h1><p className="text-[10px] text-[#D8C3A5]/70">{t.subtitle}</p></div>
             </button>
           </div>
           <div className="flex items-center space-x-1">
             <div className="flex items-center space-x-1 mr-2">
-              {ttsState!=='playing'
-                ? <button onClick={()=>handleTTS('play')} title={t.audio_read} className="p-2 rounded-full hover:bg-white/10 transition-colors flex items-center space-x-1 text-xs"><IconPlay size={14}/><span className="hidden md:inline">{t.audio_read}</span></button>
-                : <button onClick={()=>handleTTS('pause')} className="p-2 rounded-full hover:bg-white/10 transition-colors"><IconPause size={14}/></button>}
-              {ttsState!=='idle' && <button onClick={()=>handleTTS('stop')} className="p-2 rounded-full hover:bg-white/10 transition-colors"><IconSquare size={14}/></button>}
+              {ttsState!=='playing'?(<button onClick={()=>handleTTS('play')} title={t.audio_read} className="p-2 rounded-full hover:bg-white/10 transition-colors flex items-center space-x-1 text-xs"><IconPlay size={14}/><span className="hidden md:inline">{t.audio_read}</span></button>):(<button onClick={()=>handleTTS('pause')} className="p-2 rounded-full hover:bg-white/10 transition-colors"><IconPause size={14}/></button>)}
+              {ttsState!=='idle'&&<button onClick={()=>handleTTS('stop')} className="p-2 rounded-full hover:bg-white/10 transition-colors"><IconSquare size={14}/></button>}
             </div>
             <button onClick={()=>setLang(lang==='zh'?'en':'zh')} className="px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-sm font-bold transition-colors">{lang==='zh'?'EN':'中文'}</button>
             <button onClick={()=>setIsDark(!isDark)} className="p-2 rounded-full hover:bg-white/10 transition-colors">{isDark?<IconSun size={18}/>:<IconMoon size={18}/>}</button>
@@ -1102,21 +1193,16 @@ function App() {
       </header>
 
       <div className="max-w-7xl mx-auto w-full px-3 sm:px-4 lg:px-6 flex-1 flex flex-col md:flex-row gap-0 py-6">
-        <aside className="hidden md:block w-64 shrink-0 mr-6">
+        <aside className="hidden md:block w-64 shrink-0 mr-6 select-none">
           <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden md:sticky md:top-24">
-            <div className="bg-[#004030]/5 dark:bg-[#D8C3A5]/5 px-4 py-3 border-b border-slate-200 dark:border-slate-700">
-              <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">{t.nav_modules}</p>
-            </div>
+            <div className="bg-[#004030]/5 dark:bg-[#D8C3A5]/5 px-4 py-3 border-b border-slate-200 dark:border-slate-700"><p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">{t.nav_modules}</p></div>
             <nav className="space-y-0.5 p-2">
               {modulesList.map(m=>(
-                <button key={m.id} onClick={()=>{setModule(m.id);setMenuOpen(false);}}
-                  className={`w-full flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left ${module===m.id?'bg-[#004030] dark:bg-[#D8C3A5]/20 text-white dark:text-[#D8C3A5] border border-[#D8C3A5]/30':'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50'}`}>
-                  {/* 同步側邊欄的目錄項目數字顯示 */}
+                <button key={m.id} onClick={()=>{setModule(m.id);setMenuOpen(false);}} className={`w-full flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left ${module===m.id?'bg-[#004030] dark:bg-[#D8C3A5]/20 text-white dark:text-[#D8C3A5] border border-[#D8C3A5]/30':'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50'}`}>
                   <span className={`w-5 text-center shrink-0 font-bold mr-2 ${module===m.id?'text-[#D8C3A5]':'text-slate-400 dark:text-slate-500'}`}>{m.id}</span>
                   <span className={`mr-2.5 ${module===m.id?'text-[#D8C3A5]':'opacity-50'}`}>{m.icon}</span>
-                  {/* 移除原本標題內自帶的數字以避免重複 */}
                   <span className="truncate">{m.title.replace(/^[0-9]+\.\s*/, '')}</span>
-                  {module===m.id && <IconChevronRight size={14} className="ml-auto opacity-50 shrink-0"/>}
+                  {module===m.id&&<IconChevronRight size={14} className="ml-auto opacity-50 shrink-0"/>}
                 </button>
               ))}
             </nav>
@@ -1129,23 +1215,20 @@ function App() {
         </main>
       </div>
 
-      <footer className="bg-[#004030] dark:bg-slate-950 text-slate-300 dark:text-slate-400 border-t border-[#D8C3A5]">
+      <footer className="bg-[#004030] dark:bg-slate-950 text-slate-300 dark:text-slate-400 border-t border-[#D8C3A5] select-none">
         <div className="max-w-7xl mx-auto px-4 h-8 flex justify-between items-center text-[10px] sm:text-xs">
           <div className="flex items-center space-x-2 md:space-x-4">
             <div className="font-serif font-black text-[#D8C3A5] hidden sm:block tracking-widest text-sm">ENT</div>
             <span className="truncate">{t.copyright} · {t.date}</span>
           </div>
           <div className="flex items-center space-x-3 md:space-x-4">
-            <span className="text-[#D8C3A5]/70 font-serif hidden sm:inline">
-              Architect:&nbsp;
-              <a href={t.architect_url} target="_blank" rel="noopener noreferrer" className="text-[#D8C3A5] hover:text-white underline underline-offset-2 transition-colors">{t.architect_name}</a>
-            </span>
-            <button onClick={()=>window.scrollTo({top:0,behavior:'smooth'})} className="flex items-center uppercase tracking-widest hover:text-white transition-colors border-l border-slate-600 pl-3">
-              <IconChevronUp size={12} className="md:mr-1"/><span className="hidden sm:inline">TOP</span>
-            </button>
+            <span className="text-[#D8C3A5]/70 font-serif hidden sm:inline">Architect:&nbsp;<a href={t.architect_url} target="_blank" rel="noopener noreferrer" className="text-[#D8C3A5] hover:text-white underline underline-offset-2 transition-colors">{t.architect_name}</a></span>
+            <button onClick={()=>window.scrollTo({top:0,behavior:'smooth'})} className="flex items-center uppercase tracking-widest hover:text-white transition-colors border-l border-slate-600 pl-3"><IconChevronUp size={12} className="md:mr-1"/><span className="hidden sm:inline">TOP</span></button>
           </div>
         </div>
       </footer>
+      
+      <ToastComponent />
     </div>
   );
 }
